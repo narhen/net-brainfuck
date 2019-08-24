@@ -3,6 +3,7 @@
 import sys
 import os
 import socket
+from tabulate import tabulate
 
 class BFState():
     class Braces():
@@ -16,12 +17,13 @@ class BFState():
         def __str__(self):
             return f"(start={self.start}, end={self.end})"
 
-    def __init__(self, program, tape_size=1024):
+    def __init__(self, program, tape_size=1024, debug=False):
+        self.debug = debug
         self.tape_idx = 0
         self.tape = [0]*tape_size
 
         self.ip = 0
-        self.program = program
+        
 
         self.braces = []
         self.commands = {}
@@ -35,13 +37,33 @@ class BFState():
         self.add_command("[", self.left_brace)
         self.add_command("]", self.right_brace)
 
+        self.program = program
+
     def __repr__(self):
-        return f"""{self.program}
+        start, end  = self.tape_idx - 5, self.tape_idx + 5
+        tape_part = ", ".join(list(map(str, self.tape[max(0, start): min(len(self.tape), end)])))
+
+        tape_part_str_idx = 0 
+        for _ in range(0, self.tape_idx - max(0, start)):
+            tape_part_str_idx = tape_part.index(",", tape_part_str_idx) + 2
+
+        if start > 0:
+            tape_part_str_idx += 3
+
+        return tabulate([[f"""Program
+=======
+{self.program}
 {' '*self.ip}^ ({self.ip})
-tape idx    = {self.tape_idx}
-data        = {self.data}
-loops       = {self.braces}
-"""
+
+Tape
+====
+{"..." if start > 0 else ""}{tape_part}{"..." if end < len(self.tape) else ""}
+{' '*tape_part_str_idx}^ ({self.tape_idx})
+
+Loops
+=====
+{self.braces}
+"""]])
 
     def add_command(self, instruction, callback):
         self.commands[instruction] = callback
@@ -49,9 +71,16 @@ loops       = {self.braces}
     def is_finished(self):
         return self.ip >= len(self.program)
 
-    def execute(self, debug=False):
+    def execute(self):
+        # remove any character not part of the bf lanuage
+        stripped_program = ""
+        for i in self.program:
+            if i in self.commands:
+                stripped_program += i
+        self.program = stripped_program
+
         while not self.is_finished():
-            if debug:
+            if self.debug:
                 print(self)
                 if input():
                     import IPython; IPython.embed()
@@ -147,20 +176,18 @@ loops       = {self.braces}
             self.ip = self.braces[-1].start - 1
 
 class NetBrainFuck(BFState):
-    def __init__(self, program):
-        super().__init__(program)
+    def __init__(self, program, debug=False):
+        super().__init__(program, debug=debug)
         self.add_command("@", self.socket_op)
         self.add_command("!", self.debug)
 
         self.sockets = {}
         self.sock_commands = {
-            0: self.create_and_bind,
-            1: self.listen,
-            2: self.accept,
-            3: self.sock_read,
-            4: self.sock_write,
+            0: self.create_bind_listen,
+            1: self.accept,
+            2: self.sock_read,
+            3: self.sock_write,
          }
-
 
     @property
     def case_byte(self):
@@ -170,7 +197,9 @@ class NetBrainFuck(BFState):
         if self.case_byte not in self.sock_commands:
             return
 
-        print(self.sock_commands[self.case_byte].__name__)
+        if self.debug:
+            print(self.sock_commands[self.case_byte].__name__)
+
         self.sock_commands[self.case_byte]()
 
     def get_port(self):
@@ -185,26 +214,22 @@ class NetBrainFuck(BFState):
         return f"{b4}.{b3}.{b2}.{b1}"
 
 
-    # tape index + 0: where the filedescriptor will be stored
+    # tape index + 0: where the file descriptor will be stored
     # tape index + 2: lower byte of the port number
     # tape index + 3: upper byte of the port number
     # tape index + 4: lowest byte of ip address
     # tape index + 5: second lowest byte of ip address
     # tape index + 6: second upper byte of ip address
     # tape index + 7: upper byte of ip address
-    def create_and_bind(self):
+    def create_bind_listen(self):
         sd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         host, port = self.get_ip_addr(), self.get_port()
         sd.bind((host, port))
+        sd.listen()
 
         self.sockets[sd.fileno()] = sd
         self.tape[self.tape_idx] = sd.fileno()
-
-    # socket fd must be at tape index + 2
-    def listen(self):
-        sd = self.get_socket(self.tape_idx + 2)
-        sd.listen()
 
     # socket fd must be at tape index + 2
     # client fd will be stored at tape index
@@ -236,7 +261,7 @@ def main():
         return 1
 
     program = open(sys.argv[1]).read().replace("\n", " ")
-    NetBrainFuck(program).execute(len(sys.argv) > 2)
+    NetBrainFuck(program, len(sys.argv) > 2).execute()
 
 if __name__ == '__main__':
     sys.exit(main())

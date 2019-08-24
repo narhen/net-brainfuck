@@ -1,17 +1,13 @@
 >>
 
-# create socket and bind to port 1025 ip address 0
+# create socket bind and listen  to port 1025 ip address 0
 > # case byte = 0
 >+ # lower byte of port
 >++++ # upper byte of port
 <<<@
 
-# listen
-<+ # case byte = 1
-<@
-
 # accept
->+ # case byte = 2
+<+ # case byte = 1
 <@
 
 # copy client sd
@@ -24,7 +20,7 @@
 <+++++
 
 # write "A"
->++++ # case byte = 4
+>+++ # case byte = 3
 <@
 
 # write newline
